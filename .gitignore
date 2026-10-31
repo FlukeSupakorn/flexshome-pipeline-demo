@@ -1,0 +1,10 @@
+.ci-cache/
+.ci-tools/
+.ci-credentials/
+image-ref.txt
+release.json
+coverage.out
+bin/
+/server
+/server.exe
+.env
