@@ -89,7 +89,7 @@ type release struct {
 }
 
 var sourceSHA = regexp.MustCompile(`^[0-9a-f]{40}$`)
-var imageRef = regexp.MustCompile(`^ghcr\.io/flukesupakorn/flexshome-pipeline-demo@(sha256:[0-9a-f]{64})$`)
+var imageRef = regexp.MustCompile(`^(ghcr\.io/flukesupakorn/flexshome-pipeline-demo)(?::sha-([0-9a-f]{40}))?@(sha256:[0-9a-f]{64})$`)
 var runID = regexp.MustCompile(`^[1-9][0-9]*$`)
 
 func newRelease(sha, run, refs string) (release, error) {
@@ -98,11 +98,13 @@ func newRelease(sha, run, refs string) (release, error) {
 	}
 	ref := strings.TrimSpace(refs)
 	match := imageRef.FindStringSubmatch(ref)
-	if match == nil {
+	if match == nil || (match[2] != "" && match[2] != sha) {
 		return release{}, fmt.Errorf("release requires exactly one published digest in the demo image repository")
 	}
+	// ko retains the requested source tag in --image-refs output. Bind that tag
+	// to this source SHA, then publish only the immutable repository@digest.
 	return release{
 		Schema: "flexshome.release/v1", SourceRepository: "FlukeSupakorn/flexshome-pipeline-demo",
-		SourceSHA: sha, WorkflowRunID: run, ImageRef: ref, ImageDigest: match[1],
+		SourceSHA: sha, WorkflowRunID: run, ImageRef: match[1] + "@" + match[3], ImageDigest: match[3],
 	}, nil
 }
