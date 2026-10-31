@@ -111,11 +111,35 @@ func TestReleaseUsesExactlyThePublishedDigest(t *testing.T) {
 	}
 }
 
+func TestReleaseNormalizesKoTaggedDigestForExactSource(t *testing.T) {
+	const sha = "1b33a83fc9b0b243adc0aed5aeee1d8e7f57e71e"
+	const digest = "sha256:94ec0a8c1c741ded0303d92d2b684273ce12b81914bb30971ea7f28a07e31771"
+	const repository = "ghcr.io/flukesupakorn/flexshome-pipeline-demo"
+	// ko --tags=sha-$GITHUB_SHA --image-refs retains the source tag alongside
+	// the digest. The handoff must retain the digest and remove the tag.
+	got, err := newRelease(sha, "41223276915", repository+":sha-"+sha+"@"+digest+"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ImageRef != repository+"@"+digest || got.ImageDigest != digest || got.SourceSHA != sha {
+		t.Fatalf("release bindings were not normalized: %+v", got)
+	}
+}
+
 func TestReleaseRejectsTagsMultipleImagesAndMalformedInputs(t *testing.T) {
 	sha := "0123456789abcdef0123456789abcdef01234567"
 	image := "ghcr.io/flukesupakorn/flexshome-pipeline-demo@sha256:" + strings.Repeat("a", 64)
+	tagged := strings.Replace(image, "@", ":sha-"+sha+"@", 1)
 	for _, tc := range []struct{ name, sha, runID, refs string }{
 		{"tag", sha, "1", "ghcr.io/flukesupakorn/flexshome-pipeline-demo:latest"},
+		{"source tag without digest", sha, "1", "ghcr.io/flukesupakorn/flexshome-pipeline-demo:sha-" + sha},
+		{"arbitrary tag with digest", sha, "1", strings.Replace(tagged, "sha-"+sha, "latest", 1)},
+		{"wrong source tag", sha, "1", strings.Replace(tagged, "sha-"+sha, "sha-"+strings.Repeat("f", 40), 1)},
+		{"short source tag", sha, "1", strings.Replace(tagged, "sha-"+sha, "sha-"+sha[:7], 1)},
+		{"uppercase source tag", sha, "1", strings.Replace(tagged, "sha-"+sha, "sha-"+strings.ToUpper(sha), 1)},
+		{"wrong tagged repository", sha, "1", strings.Replace(tagged, "pipeline-demo", "other", 1)},
+		{"multiple tagged images", sha, "1", tagged + "\n" + tagged},
+		{"mixed tagged and digest-only images", sha, "1", tagged + "\n" + image},
 		{"multiple images", sha, "1", image + "\n" + image},
 		{"wrong repository", sha, "1", strings.Replace(image, "pipeline-demo", "other", 1)},
 		{"short digest", sha, "1", image[:len(image)-1]},
