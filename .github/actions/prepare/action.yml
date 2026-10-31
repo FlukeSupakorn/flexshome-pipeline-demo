@@ -1,0 +1,25 @@
+name: Prepare confined Go job
+description: Create ephemeral workspace caches and assert the ARC job security contract.
+runs:
+  using: composite
+  steps:
+    - name: Prepare writable paths
+      shell: sh
+      run: |
+        set -eu
+        test "$(id -u):$(id -g)" = 1001:1001
+        mkdir -p "$GITHUB_WORKSPACE/.ci-cache/gopath" \
+          "$GITHUB_WORKSPACE/.ci-cache/go-build" \
+          "$GITHUB_WORKSPACE/.ci-cache/tmp" \
+          "$GITHUB_WORKSPACE/.ci-cache/ko" \
+          "$GITHUB_WORKSPACE/.ci-cache/bin"
+        {
+          printf 'GOPATH=%s/.ci-cache/gopath\n' "$GITHUB_WORKSPACE"
+          printf 'GOCACHE=%s/.ci-cache/go-build\n' "$GITHUB_WORKSPACE"
+          printf 'GOTMPDIR=%s/.ci-cache/tmp\n' "$GITHUB_WORKSPACE"
+          printf 'TMPDIR=%s/.ci-cache/tmp\n' "$GITHUB_WORKSPACE"
+          printf 'KOCACHE=%s/.ci-cache/ko\n' "$GITHUB_WORKSPACE"
+        } >> "$GITHUB_ENV"
+    - name: Check kernel confinement and credential isolation
+      shell: sh
+      run: go run ./internal/cicheck preflight

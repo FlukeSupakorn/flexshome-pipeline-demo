@@ -8,4 +8,6 @@ The build injects the source revision as the version. Runtime configuration sele
 
 Build flow: pinned Go toolchain → tests/vet → pinned ko + distroless base → OCI registry digest artifact. No Docker daemon, Dockerfile, privileged job, nested container or Kubernetes credential is needed for this Go adapter. Future applications select their appropriate builder without changing the registry/digest/GitOps release contract.
 
+The [source CI contract](ci.md) documents the ARC confinement assertion, main-only publication, immutable release schema, dependency provenance, acceptance evidence, and recovery boundary.
+
 Deployment definitions live in a separate manifest repo; the central version-control repo selects an immutable manifest revision. This app cannot change cluster infrastructure or deploy itself directly.
