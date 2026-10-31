@@ -23,7 +23,7 @@ func (a *app) drain() { a.ready.Store(false) }
 
 var homePage = template.Must(template.New("home").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FlexsHome pipeline demo</title></head>
-<body><main><h1>FlexsHome</h1><p>Deployment pipeline demo</p><dl><dt>Release</dt><dd>{{.Version}}</dd><dt>Environment</dt><dd>{{.Environment}}</dd></dl><p><a href="/version">Release details</a></p></main></body></html>`))
+<body><main><h1>FlexsHome</h1><p>Verified GitOps deployment</p><dl><dt>Release</dt><dd>{{.Version}}</dd><dt>Environment</dt><dd>{{.Environment}}</dd></dl><p><a href="/version">Release details</a></p></main></body></html>`))
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
