@@ -1,44 +1,45 @@
-# Source CI and release contract
+# Source CI
 
-`Source CI / verify` runs on pushes, same-repository pull requests to `main`, and manual dispatch. It checks confinement, formatting, all Go tests, vet, and a version-injected build. Fork pull requests do not execute on this private self-hosted pool. Use a reviewed branch in this repository for changes.
+The short [workflow caller](../.github/workflows/ci.yml) selects the private
+[shared Go workflow](https://github.com/FlukeSupakorn/flexshome-platform/blob/b0034d4f25aca73320d9468fb5d824bda57964dd/.github/workflows/go-ci.yaml)
+at immutable platform commit b0034d4f25aca73320d9468fb5d824bda57964dd.
+Build programs, confinement assertions, tool/image pins, ko configuration and
+their tests belong to that platform repository. This repository contains the
+application and its tests; it passes no deployment credentials to shared CI.
 
-Both jobs select only the ARC scale set `flexshome-code` and the immutable Go container in the workflow. The job runs as UID/GID `1001:1001`. Go build/module/temp paths and ko's cache are ephemeral directories inside the job workspace. The workflow uses no hosted runner, shared Actions cache, Docker daemon, container build action, privileged container, Kubernetes credentials, or deploy permission.
+Pushes to main, dev, feature/** and release/**, same-repository pull requests to
+main/dev, and manual dispatch run shared verification. It checks process and
+workspace confinement, tracked Go formatting, tests, vet and a versioned build in
+the existing nonroot ARC code pool. The called workflow resolves its own private
+composite action through GitHub's native $/ action reference. It uses the caller
+source checkout; no shared program is copied into this application.
 
-The centrally maintained ARC hook must enforce nonroot identity, `allowPrivilegeEscalation: false`, all capabilities dropped, runtime-default seccomp, no service-account-token mount, and no runtime sockets or host mounts before repository code runs. The source-side `cicheck preflight` independently asserts the expected process identity, all five capability sets empty, `NoNewPrivs=1`, seccomp filter mode, absent conventional Kubernetes token/runtime socket paths, and absent ambient cluster/cloud/registry credentials. It fails closed if kernel status cannot be read or a forbidden mount cannot be ruled out. Its evidence never includes credential values. This assertion complements the controller hook; source code cannot enforce its own isolation boundary.
+Only a successful main push publishes the immutable linux/amd64 image. PR and
+feature runs verify and skip publication. The shared publisher uses its generated
+ko configuration, a digest-pinned base and toolchain, and temporary registry
+authentication with cleanup. A lookup tag never replaces the verified image
+digest. Source CI cannot write manifests, promote releases or access the cluster.
 
-Only a successful `push` of `main` in `FlukeSupakorn/flexshome-pipeline-demo` can start `publish`. That job checks out the same source SHA and receives only `contents: read` plus `packages: write`. It installs ko after checking the release archive SHA-256, then uses stdin for the step-scoped `GITHUB_TOKEN` and unsets that variable before building. Registry credentials live only in `.ci-credentials/config.json`, with mode restricted by `umask 077`; a trap and an always-run cleanup remove them. No credentials enter artifacts.
+The seven-day handoff is the uniquely named artifact
+release-<source SHA>-<workflow run ID>-<attempt>, containing only release.json:
 
-ko builds exactly `./cmd/server`, with `--bare`, one build job, `linux/amd64`, image user `65532:65532`, a digest-pinned distroless base, full source SHA version, commit-date `SOURCE_DATE_EPOCH`, and OCI source/revision labels. The `sha-<source SHA>` tag is a lookup aid. The release handoff always comes from ko's `--image-refs` file and must contain exactly one digest reference in the demo repository.
+    {
+      "schema": "flexshome.release/v2",
+      "source_repository": "FlukeSupakorn/flexshome-pipeline-demo",
+      "source_sha": "<full main commit SHA>",
+      "workflow_run_id": "<decimal run ID>",
+      "workflow_run_attempt": "<decimal attempt>",
+      "image_ref": "ghcr.io/flukesupakorn/flexshome-pipeline-demo@sha256:<digest>",
+      "image_digest": "sha256:<digest>"
+    }
 
-The only uploaded artifact is `release.json`, retained for seven days:
+Manifest/catalog promotion independently verifies that exact repository, source
+commit, native workflow run/attempt and image provenance. The shared platform owns
+those gates and retained deployment evidence. A source CI change alone does not
+change the running deployment or accepted historical release records.
 
-```json
-{
-  "schema": "flexshome.release/v1",
-  "source_repository": "FlukeSupakorn/flexshome-pipeline-demo",
-  "source_sha": "<40 lowercase hexadecimal characters>",
-  "workflow_run_id": "<positive decimal ID>",
-  "image_ref": "ghcr.io/flukesupakorn/flexshome-pipeline-demo@sha256:<64 lowercase hexadecimal characters>",
-  "image_digest": "sha256:<64 lowercase hexadecimal characters>"
-}
-```
-
-App manifests consume the digest through their own reviewed change. Keep accepted release records in the platform's durable release ledger before the seven-day Actions artifact expires. This repository cannot promote a deployment or change cluster infrastructure. For recovery, retain the previous accepted image digest and manifest revision; revert a faulty source change and run CI again. Never substitute a rebuilt tag for a previously accepted digest during rollback.
-
-## Dependency provenance
-
-Checked against primary GitHub release/tag APIs on 2026-10-31:
-
-| Dependency | Immutable identity | Primary record |
-| --- | --- | --- |
-| actions/checkout v7.0.1 | `3d3c42e5aac5ba805825da76410c181273ba90b1` | [GitHub commit API](https://api.github.com/repos/actions/checkout/commits/v7.0.1) |
-| actions/upload-artifact v7.0.2 | `cf430e030ddbb5b0abf93d22962f4752f3646cd9` | [GitHub commit API](https://api.github.com/repos/actions/upload-artifact/commits/v7.0.2) |
-| ko v0.19.1 Linux x86_64 archive | SHA-256 `635ac6ea3fd376c935fee597fbb29ab2c2449f49ef1655085fe3aa9c25fed7a5` | [Official release](https://github.com/ko-build/ko/releases/tag/v0.19.1) |
-
-Go and distroless image digests are pinned directly in the workflow and `.ko.yaml`. Action runtime compatibility requires an ARC runner supporting Node 24 actions (runner v2.327.1 or newer). The controller pins and actual ARC execution proof belong to the central platform repository.
-
-## Verification and acceptance
-
-Local verification: `gofmt -l ./cmd ./internal`, `go test -count=1 ./...`, `go vet ./...`, `go build -trimpath ./cmd/server`, and actionlint with `.github/actionlint.yaml`. Unit fixtures cover secure and unsafe process states, mounted tokens/sockets, ambient credentials without value disclosure, and exact immutable release reference validation.
-
-Acceptance still requires a real ARC run after GitHub App installation, an intentional formatting failure on a disposable branch proving `publish` stays skipped, a successful reviewed-main push producing the digest artifact, and independent image/runtime verification. A local test run does not prove the remote security boundary or registry publication.
+Local application checks: gofmt -l ./cmd, go test -count=1 ./...,
+go vet ./... and go build -trimpath ./cmd/server. Caller validation and shared
+program tests run from the platform repository. Local checks do not prove private
+reusable-action access, ARC execution or main-only publication; native consumer
+PR/main runs provide those separate results.

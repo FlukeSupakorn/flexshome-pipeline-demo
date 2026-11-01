@@ -2,120 +2,15 @@ name: Source CI
 
 on:
   push:
+    branches: [main, dev, 'feature/**', 'release/**']
   pull_request:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: source-ci-${{ github.ref }}
-  cancel-in-progress: false
-
-env:
-  CGO_ENABLED: '0'
-  GOTOOLCHAIN: local
-  GOFLAGS: -mod=readonly
-  GOMAXPROCS: '2'
+  packages: write
 
 jobs:
-  verify:
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: flexshome-code
-    timeout-minutes: 15
-    container:
-      image: golang:1.27.3-bookworm@sha256:d9b6a1beb9474adc2a1ce842573639b44b2a0dd49b6669f51d3821baf9ec37c9
-      options: --user 1001:1001
-    steps:
-      - name: Checkout exact source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 1
-      - uses: ./.github/actions/prepare
-      - name: Check formatting
-        shell: sh
-        run: |
-          set -eu
-          unformatted="$(gofmt -l ./cmd ./internal)"
-          if [ -n "$unformatted" ]; then
-            printf 'Run gofmt on:\n%s\n' "$unformatted" >&2
-            exit 1
-          fi
-      - name: Test
-        run: go test -count=1 ./...
-      - name: Vet
-        run: go vet ./...
-      - name: Build
-        shell: sh
-        run: go build -trimpath -ldflags "-s -w -X main.version=$GITHUB_SHA" -o .ci-cache/bin/server ./cmd/server
-
-  publish:
-    needs: verify
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'FlukeSupakorn/flexshome-pipeline-demo'
-    runs-on: flexshome-code
-    timeout-minutes: 15
-    permissions:
-      contents: read
-      packages: write
-    container:
-      image: golang:1.27.3-bookworm@sha256:d9b6a1beb9474adc2a1ce842573639b44b2a0dd49b6669f51d3821baf9ec37c9
-      options: --user 1001:1001
-    steps:
-      - name: Checkout verified main commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-          fetch-depth: 1
-      - uses: ./.github/actions/prepare
-      - name: Install verified daemonless builder
-        shell: sh
-        run: |
-          set -eu
-          mkdir -p .ci-tools
-          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-            https://github.com/ko-build/ko/releases/download/v0.19.1/ko_0.19.1_Linux_x86_64.tar.gz \
-            --output .ci-tools/ko.tar.gz
-          printf '%s  %s\n' 635ac6ea3fd376c935fee597fbb29ab2c2449f49ef1655085fe3aa9c25fed7a5 .ci-tools/ko.tar.gz | sha256sum --check --strict
-          tar -xzf .ci-tools/ko.tar.gz -C .ci-tools ko
-          .ci-tools/ko version
-      - name: Publish immutable image and record release
-        shell: sh
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          KO_DOCKER_REPO: ghcr.io/flukesupakorn/flexshome-pipeline-demo
-        run: |
-          set -eu
-          umask 077
-          export DOCKER_CONFIG="$GITHUB_WORKSPACE/.ci-credentials"
-          mkdir -p "$DOCKER_CONFIG"
-          trap 'rm -f "$DOCKER_CONFIG/config.json"; rmdir "$DOCKER_CONFIG" 2>/dev/null || true' EXIT HUP INT TERM
-          printf '%s' "$GITHUB_TOKEN" | .ci-tools/ko login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
-          unset GITHUB_TOKEN
-          SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
-          export SOURCE_DATE_EPOCH
-          export SOURCE_REVISION="$GITHUB_SHA"
-          .ci-tools/ko build ./cmd/server \
-            --bare --jobs=1 --platform=linux/amd64 --image-user=65532:65532 \
-            --tags="sha-$GITHUB_SHA" --image-refs=image-ref.txt \
-            --image-label="org.opencontainers.image.source=https://github.com/FlukeSupakorn/flexshome-pipeline-demo" \
-            --image-label="org.opencontainers.image.revision=$GITHUB_SHA"
-          go run ./internal/cicheck release "$GITHUB_SHA" "$GITHUB_RUN_ID" image-ref.txt > release.json
-      - name: Remove registry credentials
-        if: always()
-        shell: sh
-        run: |
-          set -eu
-          rm -f "$GITHUB_WORKSPACE/.ci-credentials/config.json"
-          if [ -d "$GITHUB_WORKSPACE/.ci-credentials" ]; then
-            rmdir "$GITHUB_WORKSPACE/.ci-credentials"
-          fi
-      - name: Retain digest handoff
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-${{ github.sha }}-${{ github.run_attempt }}
-          path: release.json
-          if-no-files-found: error
-          retention-days: 7
+  ci:
+    uses: FlukeSupakorn/flexshome-platform/.github/workflows/go-ci.yaml@b0034d4f25aca73320d9468fb5d824bda57964dd
