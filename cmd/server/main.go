@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-var version = "development"
+var  version = "development"
 
 func run() error {
 	addr := os.Getenv("LISTEN_ADDR")
