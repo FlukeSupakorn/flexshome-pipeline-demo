@@ -58,3 +58,13 @@ validates manifest and catalog pull requests, while Argo reconciles their
 selected revisions. Operational acceptance and scheduling are tracked there.
 Application development needs no cluster credentials, manual image-tag reuse,
 or routine Pod deletion.
+
+## Confirm the deployed release
+
+Check `/healthz` for availability and `/version` for release identity. Compare
+the returned `version` with the full resulting main commit SHA, not the feature
+branch tip or the pull request's temporary merge commit.
+
+A green main-push source workflow confirms build and publication. Manifest promotion,
+catalog selection and Argo readiness are separate checks owned by the platform
+repository; use those receipts before calling a release deployed.
