@@ -12,7 +12,7 @@ standard library and needs no database or other local service.
 go run ./cmd/server
 ```
 
-Open <http://localhost:8080/>. Stop with Ctrl+C; the server fails readiness before
+Open <http://localhost:8080/app/>. Stop with Ctrl+C. The server fails readiness before
 draining active requests.
 
 | Environment variable | Default | Purpose |
@@ -25,10 +25,13 @@ source commit SHA; the application does not choose a deployment revision.
 
 | Route | Response |
 | --- | --- |
-| `GET /` | Release page |
+| `GET /app/` | Release page |
+| `GET /api/version` | JSON containing `version` and `environment` |
 | `GET /healthz` | `200` with `{"status":"ok"}` |
 | `GET /readyz` | `200` while ready; `503` while draining |
-| `GET /version` | JSON containing `version` and `environment` |
+
+The existing `/` and `/version` routes continue to serve the release page and
+version data for callers during the cutover.
 
 ## Check a change
 
@@ -61,7 +64,7 @@ or routine Pod deletion.
 
 ## Confirm the deployed release
 
-Check `/healthz` for availability and `/version` for release identity. Compare
+Check `/healthz` for availability and `/api/version` for release identity. Compare
 the returned `version` with the full resulting main commit SHA, not the feature
 branch tip or the pull request's temporary merge commit.
 

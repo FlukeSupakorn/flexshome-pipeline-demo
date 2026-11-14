@@ -2,7 +2,7 @@
 
 This stateless application proves OCI build, private image delivery, deployment health, version promotion and rollback. It contains no family data, databases, credentials or host mounts.
 
-Request flow: public demo Funnel → Kubernetes Service → nonroot Go HTTP process. Kubernetes probes call `/healthz` and `/readyz`; the acceptance check calls `/version`. Root `/` is a small human-readable release page. Unknown routes and unsupported methods are rejected.
+The Cloudflare Tunnel forwards demo traffic to the Kubernetes Service and its nonroot Go HTTP process. Kubernetes probes call `/healthz` and `/readyz`. The release page at `/app/` links to `/api/version`. The existing acceptance check can still call `/version`. Unknown routes and unsupported methods are rejected.
 
 The build injects the source revision as the version. Runtime configuration selects the environment and listen address. Responses reveal only the demo release/environment, not host configuration. Shutdown first fails readiness, then drains HTTP with a bounded deadline.
 
