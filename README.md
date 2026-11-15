@@ -53,8 +53,9 @@ for the request and shutdown behavior.
 4. A successful main-push workflow tests the resulting main commit and publishes
    its immutable image and source/run/attempt handoff.
 
-The [short CI caller](.github/workflows/ci.yml) pins the shared implementation.
-The [CI contract](docs/ci.md) describes publication and its permission boundary.
+The [source workflow](.github/workflows/ci.yml) uses free hosted runners for this
+public repository. The [CI contract](docs/ci.md) describes immutable publication
+and deployment provenance.
 Deployment automation belongs to
 [flexshome-platform](https://github.com/FlukeSupakorn/flexshome-platform): it
 validates manifest and catalog pull requests, while Argo reconciles their
