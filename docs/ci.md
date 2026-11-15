@@ -1,45 +1,31 @@
 # Source CI
 
-The short [workflow caller](../.github/workflows/ci.yml) selects the private
-[shared Go workflow](https://github.com/FlukeSupakorn/flexshome-platform/blob/b0034d4f25aca73320d9468fb5d824bda57964dd/.github/workflows/go-ci.yaml)
-at immutable platform commit b0034d4f25aca73320d9468fb5d824bda57964dd.
-Build programs, confinement assertions, tool/image pins, ko configuration and
-their tests belong to that platform repository. This repository contains the
-application and its tests; it passes no deployment credentials to shared CI.
+The [workflow](../.github/workflows/ci.yml) verifies source on free
+GitHub-hosted Linux runners for this public repository. It checks Go formatting,
+tests, vet and a compiled binary using the Go version in go.mod. Pull requests
+from this repository and branch pushes can verify without package-write access.
 
-Pushes to main, dev, feature/** and release/**, same-repository pull requests to
-main/dev, and manual dispatch run shared verification. It checks process and
-workspace confinement, tracked Go formatting, tests, vet and a versioned build in
-the existing nonroot ARC code pool. The called workflow resolves its own private
-composite action through GitHub's native $/ action reference. It uses the caller
-source checkout; no shared program is copied into this application.
-
-Only a successful main push publishes the immutable linux/amd64 image. PR and
-feature runs verify and skip publication. The shared publisher uses its generated
-ko configuration, a digest-pinned base and toolchain, and temporary registry
-authentication with cleanup. A lookup tag never replaces the verified image
-digest. Source CI cannot write manifests, promote releases or access the cluster.
+Only a successful push to this repository's main branch publishes an immutable
+linux/amd64 image. The publication job checks out the same verified commit, uses
+checksum-pinned ko and a digest-pinned base image, and scopes registry
+authentication to the job's temporary directory. The image records its full
+source revision and publication run/attempt as OCI labels.
 
 The seven-day handoff is the uniquely named artifact
-release-<source SHA>-<workflow run ID>-<attempt>, containing only release.json:
+`release-<source SHA>-<workflow run ID>-<attempt>`, containing only release.json.
 
-    {
-      "schema": "flexshome.release/v2",
-      "source_repository": "FlukeSupakorn/flexshome-pipeline-demo",
-      "source_sha": "<full main commit SHA>",
-      "workflow_run_id": "<decimal run ID>",
-      "workflow_run_attempt": "<decimal attempt>",
-      "image_ref": "ghcr.io/flukesupakorn/flexshome-pipeline-demo@sha256:<digest>",
-      "image_digest": "sha256:<digest>"
-    }
+```json
+{
+  "schema": "flexshome.release/v2",
+  "source_repository": "FlukeSupakorn/flexshome-pipeline-demo",
+  "source_sha": "<full main commit SHA>",
+  "workflow_run_id": "<decimal run ID>",
+  "workflow_run_attempt": "<decimal attempt>",
+  "image_ref": "ghcr.io/flukesupakorn/flexshome-pipeline-demo@sha256:<digest>",
+  "image_digest": "sha256:<digest>"
+}
+```
 
-Manifest/catalog promotion independently verifies that exact repository, source
-commit, native workflow run/attempt and image provenance. The shared platform owns
-those gates and retained deployment evidence. A source CI change alone does not
-change the running deployment or accepted historical release records.
-
-Local application checks: gofmt -l ./cmd, go test -count=1 ./...,
-go vet ./... and go build -trimpath ./cmd/server. Caller validation and shared
-program tests run from the platform repository. Local checks do not prove private
-reusable-action access, ARC execution or main-only publication; native consumer
-PR/main runs provide those separate results.
+Manifest promotion uses the exact source commit, workflow run and attempt, and
+image digest. A successful source run supplies release provenance for the
+separate manifest change. See the [release steps](../README.md#release-a-change).

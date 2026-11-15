@@ -23,7 +23,7 @@ func (a *app) drain() { a.ready.Store(false) }
 
 var homePage = template.Must(template.New("home").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FlexsHome pipeline demo</title></head>
-<body><main><h1>FlexsHome</h1><p>Verified GitOps deployment</p><dl><dt>Release</dt><dd>{{.Version}}</dd><dt>Environment</dt><dd>{{.Environment}}</dd></dl><p><a href="/version">Release details</a></p></main></body></html>`))
+<body><main><h1>FlexsHome</h1><p>Verified GitOps deployment</p><dl><dt>Release</dt><dd>{{.Version}}</dd><dt>Environment</dt><dd>{{.Environment}}</dd></dl><p><a href="/api/version">Release details</a></p></main></body></html>`))
 
 func writeJSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -33,10 +33,12 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 
 func (a *app) handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+	serveHome := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_ = homePage.Execute(w, struct{ Version, Environment string }{a.version, a.environment})
-	})
+	}
+	mux.HandleFunc("GET /app/{$}", serveHome)
+	mux.HandleFunc("GET /{$}", serveHome)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -47,9 +49,11 @@ func (a *app) handler() http.Handler {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 	})
-	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
+	serveVersion := func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"version": a.version, "environment": a.environment})
-	})
+	}
+	mux.HandleFunc("GET /api/version", serveVersion)
+	mux.HandleFunc("GET /version", serveVersion)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")

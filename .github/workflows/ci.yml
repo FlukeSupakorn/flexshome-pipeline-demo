@@ -9,8 +9,119 @@ on:
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: source-ci-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  GOTOOLCHAIN: local
 
 jobs:
-  ci:
-    uses: FlukeSupakorn/flexshome-platform/.github/workflows/go-ci.yaml@b0034d4f25aca73320d9468fb5d824bda57964dd
+  verify:
+    name: ci / verify
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Verify source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test -z "$(gofmt -l ./cmd)"
+          go test -count=1 ./...
+          go vet ./...
+          go build -trimpath -o "$RUNNER_TEMP/pipeline-demo" ./cmd/server
+
+  publish:
+    name: ci / publish
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'FlukeSupakorn/flexshome-pipeline-demo' && github.repository_id == '1440607759'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    env:
+      KO_DOCKER_REPO: ghcr.io/flukesupakorn/flexshome-pipeline-demo
+      KO_DEFAULTBASEIMAGE: gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install pinned ko and configure the image build
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          umask 077
+          work="$(mktemp -d "$RUNNER_TEMP/pipeline-demo.XXXXXXXX")"
+          curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 --max-filesize 33554432 \
+            --output "$work/ko.tgz" https://github.com/ko-build/ko/releases/download/v0.19.1/ko_0.19.1_Linux_x86_64.tar.gz
+          printf '%s  %s\n' '635ac6ea3fd376c935fee597fbb29ab2c2449f49ef1655085fe3aa9c25fed7a5' "$work/ko.tgz" | sha256sum --check
+          tar -xzf "$work/ko.tgz" --no-same-owner --no-same-permissions -C "$work" ko
+          mkdir "$work/docker"
+          cat > "$work/ko.yaml" <<EOF
+          builds:
+            - id: server
+              main: ./cmd/server
+              env:
+                - CGO_ENABLED=0
+              flags:
+                - -trimpath
+              ldflags:
+                - -s
+                - -w
+                - -X main.version=$GITHUB_SHA
+          EOF
+          printf '%s\n' "$work" >> "$GITHUB_PATH"
+          printf 'DEMO_RELEASE_DIR=%s\nDOCKER_CONFIG=%s/docker\nKO_CONFIG_PATH=%s/ko.yaml\n' "$work" "$work" "$work" >> "$GITHUB_ENV"
+          printf 'SOURCE_DATE_EPOCH=%s\n' "$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Authenticate to GHCR
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+        run: printf '%s' "$REGISTRY_TOKEN" | ko login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+
+      - name: Publish the verified main commit
+        run: |
+          set -euo pipefail
+          tag="sha-$GITHUB_SHA-run-$GITHUB_RUN_ID-attempt-$GITHUB_RUN_ATTEMPT"
+          ko build ./cmd/server --bare --jobs=1 --platform=linux/amd64 --image-user=65532:65532 \
+            --tags="$tag" --image-refs "$DEMO_RELEASE_DIR/image-ref.txt" \
+            --image-label="org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --image-label="org.opencontainers.image.revision=$GITHUB_SHA" \
+            --image-label="io.flexshome.publication.run=$GITHUB_RUN_ID" \
+            --image-label="io.flexshome.publication.attempt=$GITHUB_RUN_ATTEMPT"
+          observed_ref="$(cat "$DEMO_RELEASE_DIR/image-ref.txt")"
+          image_digest="${observed_ref##*@}"
+          [[ "$image_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          image_ref="$KO_DOCKER_REPO@$image_digest"
+          [[ "$observed_ref" == "$image_ref" || "$observed_ref" == "$KO_DOCKER_REPO:$tag@$image_digest" ]]
+          jq -n --arg repository "$GITHUB_REPOSITORY" --arg sha "$GITHUB_SHA" \
+            --arg run "$GITHUB_RUN_ID" --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg ref "$image_ref" --arg digest "$image_digest" \
+            '{schema:"flexshome.release/v2", source_repository:$repository, source_sha:$sha,
+              workflow_run_id:$run, workflow_run_attempt:$attempt, image_ref:$ref, image_digest:$digest}' \
+            > "$DEMO_RELEASE_DIR/release.json"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ env.DEMO_RELEASE_DIR }}/release.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove registry credentials
+        if: always() && env.DOCKER_CONFIG != ''
+        run: rm -f -- "$DOCKER_CONFIG/config.json"

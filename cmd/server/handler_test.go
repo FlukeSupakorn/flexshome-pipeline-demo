@@ -41,23 +41,35 @@ func TestReadinessDuringDrain(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
-	w := request(newApp("source-abc", "uat"), http.MethodGet, "/version")
-	var body map[string]string
-	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
-		t.Fatal(err)
-	}
-	if w.Code != http.StatusOK || body["version"] != "source-abc" || body["environment"] != "uat" || len(body) != 2 {
-		t.Fatalf("version response = %d %#v", w.Code, body)
-	}
-	if w.Header().Get("Cache-Control") != "no-store" {
-		t.Fatal("version response must not be cached")
+	for _, path := range []string{"/api/version", "/version"} {
+		t.Run(path, func(t *testing.T) {
+			w := request(newApp("source-abc", "uat"), http.MethodGet, path)
+			var body map[string]string
+			if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if w.Code != http.StatusOK || body["version"] != "source-abc" || body["environment"] != "uat" || len(body) != 2 {
+				t.Fatalf("version response = %d %#v", w.Code, body)
+			}
+			if w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("version response must not be cached")
+			}
+		})
 	}
 }
 
 func TestHomeEscapesReleaseText(t *testing.T) {
-	w := request(newApp("<script>alert(1)</script>", "dev"), http.MethodGet, "/")
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "FlexsHome") || strings.Contains(w.Body.String(), "<script>") {
-		t.Fatalf("home response = %d %q", w.Code, w.Body.String())
+	for _, path := range []string{"/app/", "/"} {
+		t.Run(path, func(t *testing.T) {
+			w := request(newApp("<script>alert(1)</script>", "dev"), http.MethodGet, path)
+			body := w.Body.String()
+			if w.Code != http.StatusOK || !strings.Contains(body, "FlexsHome") || strings.Contains(body, "<script>") {
+				t.Fatalf("home response = %d %q", w.Code, body)
+			}
+			if !strings.Contains(body, `href="/api/version"`) {
+				t.Fatal("home page must link to the release API")
+			}
+		})
 	}
 }
 
@@ -67,6 +79,7 @@ func TestRoutesAndMethods(t *testing.T) {
 		status       int
 	}{
 		{http.MethodGet, "/missing", http.StatusNotFound},
+		{http.MethodGet, "/app/missing", http.StatusNotFound},
 		{http.MethodGet, "/version/extra", http.StatusNotFound},
 		{http.MethodPost, "/version", http.StatusMethodNotAllowed},
 		{http.MethodHead, "/healthz", http.StatusOK},
